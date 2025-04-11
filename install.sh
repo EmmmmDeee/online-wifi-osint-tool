@@ -65,6 +65,9 @@ if ! echo "$PATH" | grep -q "$BIN_DIR"; then
   source "$HOME/.bashrc"
 fi
 
+# Optimize for Termux
+optimize_for_termux
+
 # Post-installation message
 echo "====================================="
 echo "Installation complete!"

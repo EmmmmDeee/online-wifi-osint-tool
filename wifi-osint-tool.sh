@@ -91,6 +91,8 @@ check_dependencies() {
             exit 1
         fi
     fi
+
+    optimize_for_termux
 }
 
 # Scan for nearby Wi-Fi networks
@@ -277,6 +279,12 @@ update_oui_database() {
     return 0
 }
 
+# Optimize for Termux
+optimize_for_termux() {
+    # Add any specific optimizations for Termux here
+    log "Optimizing for Termux environment..."
+}
+
 # ==================== MAIN MENU ==========================
 main_menu() {
     clear
@@ -309,4 +317,5 @@ main_menu() {
 
 # ==================== RUN THE TOOL =======================
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
+optimize_for_termux
 main_menu
