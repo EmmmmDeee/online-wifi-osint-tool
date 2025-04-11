@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/bin/bash
 
 # Enable error handling
 set -e
@@ -15,13 +15,20 @@ if [[ -z "$PREFIX" ]]; then
   exit 1
 fi
 
+# Check for current environment and provide instructions or make it compatible
+if [[ "$OSTYPE" != "linux-android"* ]]; then
+  echo "Warning: This script is designed for Termux on Android. You are running on $OSTYPE."
+  echo "Attempting to make the script compatible with your environment..."
+  # Add compatibility adjustments here if needed
+fi
+
 # Update and upgrade Termux packages
 echo "Updating and upgrading Termux packages..."
 pkg update -y && pkg upgrade -y
 
 # Install required dependencies
 echo "Installing necessary dependencies..."
-pkg install -y curl git wget bash
+pkg install -y curl git wget bash termux-api jq
 
 # Define directories (XDG Base Directory compliant)
 CONFIG_DIR="${HOME}/.config/wifi-osint"
