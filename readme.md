@@ -20,3 +20,17 @@ Start the tool by typing:
 ```bash
 wifi-osint
 ```
+
+## Uninstallation
+
+To uninstall the tool, run the following command:
+```bash
+./uninstall.sh
+```
+
+## Update
+
+To update the tool, run the following command:
+```bash
+./update.sh
+```
