@@ -66,6 +66,17 @@ if ! echo "$PATH" | grep -q "$BIN_DIR"; then
 fi
 
 # Optimize for Termux
+optimize_for_termux() {
+    if [[ -n "$PREFIX" && "$OSTYPE" == "linux-android"* ]]; then
+        echo "Optimizing for Termux environment..."
+        # Add any specific optimizations for Termux here
+    else
+        echo "Error: This script is designed for Termux on Android. Make sure you're running it in Termux."
+        exit 1
+    fi
+}
+
+# Call optimize_for_termux function
 optimize_for_termux
 
 # Post-installation message

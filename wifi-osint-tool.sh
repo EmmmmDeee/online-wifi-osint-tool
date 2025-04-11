@@ -281,8 +281,13 @@ update_oui_database() {
 
 # Optimize for Termux
 optimize_for_termux() {
-    # Add any specific optimizations for Termux here
-    log "Optimizing for Termux environment..."
+    if [[ -n "$PREFIX" && "$OSTYPE" == "linux-android"* ]]; then
+        log "Optimizing for Termux environment..."
+        # Add any specific optimizations for Termux here
+    else
+        error "This script is designed for Termux on Android. Make sure you're running it in Termux."
+        exit 1
+    fi
 }
 
 # ==================== MAIN MENU ==========================
