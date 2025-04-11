@@ -1,0 +1,7 @@
+{
+  "tasks": {
+    "build": "./install.sh",
+    "test": "cat install.sh",
+    "launch": "wifi-osint"
+  }
+}

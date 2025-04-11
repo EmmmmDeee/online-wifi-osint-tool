@@ -34,6 +34,62 @@ error() {
     echo -e "${RED}[$(date '+%Y-%m-%d %H:%M:%S')] ✗ $1${NC}" | tee -a "$LOG_FILE"
 }
 
+# Check internet connectivity
+check_internet() {
+    if ping -c 1 8.8.8.8 &> /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Setup function to create necessary directories
+setup() {
+    mkdir -p "$CONFIG_DIR" "$LOG_DIR"
+}
+
+# Clean up old log files
+cleanup_logs() {
+    find "$LOG_DIR" -name "osint_*.log" -type f -mtime +7 -delete 2>/dev/null
+}
+
+# Check dependencies function
+check_dependencies() {
+    local missing_deps=()
+    local deps=("curl" "jq" "termux-tools" "termux-api" "iproute2")
+    
+    for dep in "${deps[@]}"; do
+        if ! pkg list-installed | grep -q "^$dep"; then
+            missing_deps+=("$dep")
+        fi
+    done
+    
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        echo -e "${YELLOW}Missing dependencies: ${missing_deps[*]}${NC}"
+        echo -e "${YELLOW}Install missing dependencies? [Y/n]${NC}"
+        read -r install_choice
+        if [[ $install_choice != "n" && $install_choice != "N" ]]; then
+            log "Installing missing dependencies..."
+            pkg install -y "${missing_deps[@]}"
+            success "Dependencies installed"
+        else
+            echo -e "${YELLOW}Some features may not work without required dependencies${NC}"
+        fi
+    fi
+    
+    # Check for termux-api app
+    if ! command -v termux-wifi-scaninfo &> /dev/null; then
+        echo -e "${YELLOW}Termux API app is not installed on your device.${NC}"
+        echo -e "${YELLOW}For best functionality, install the Termux:API app from F-Droid or Google Play Store.${NC}"
+        echo -e "${YELLOW}After installation, run 'pkg install termux-api' in Termux.${NC}"
+        echo -e "${YELLOW}Continue anyway? [Y/n]${NC}"
+        read -r continue_choice
+        if [[ $continue_choice == "n" || $continue_choice == "N" ]]; then
+            exit 1
+        fi
+    fi
+}
+
 # ==================== MAIN MENU ==========================
 main_menu() {
     clear
@@ -65,5 +121,7 @@ main_menu() {
 }
 
 # ==================== RUN THE TOOL =======================
-mkdir -p "$CONFIG_DIR" "$LOG_DIR"
+setup
+cleanup_logs
+check_dependencies
 main_menu
