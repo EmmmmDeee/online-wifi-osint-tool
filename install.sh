@@ -21,7 +21,7 @@ pkg update -y && pkg upgrade -y
 
 # Install required dependencies
 echo "Installing necessary dependencies..."
-pkg install -y curl git wget bash
+pkg install -y curl git wget bash jq termux-tools termux-api iproute2
 
 # Define directories (XDG Base Directory compliant)
 CONFIG_DIR="${HOME}/.config/wifi-osint"
