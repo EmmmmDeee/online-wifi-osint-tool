@@ -14,12 +14,19 @@ This is a fully automated Wi-Fi OSINT tool for Termux on Android Aarch64 devices
    ./install.sh
    ```
 
+3. Optimize for Termux:
+   The installation script will automatically call the `optimize_for_termux` function to ensure the tool is optimized for the Termux environment.
+
 ## Usage
 
 Start the tool by typing:
 ```bash
 wifi-osint
 ```
+
+### Optimizing for Termux
+
+The `optimize_for_termux` function is called during the installation process to ensure the tool is optimized for the Termux environment. This function performs specific optimizations to enhance the tool's performance and compatibility with Termux on Android Aarch64 devices.
 
 ## Dependencies
 
