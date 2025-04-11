@@ -20,3 +20,22 @@ Start the tool by typing:
 ```bash
 wifi-osint
 ```
+
+## Dependencies
+
+The tool requires the following dependencies:
+- curl
+- jq
+- termux-tools
+- termux-api
+- iproute2
+
+## Setup
+
+The setup process will create necessary directories and default configuration files. It will also check and install any missing dependencies.
+
+## Features
+
+- Scan for nearby Wi-Fi networks
+- Look up vendor from MAC address
+- Download and update OUI database
