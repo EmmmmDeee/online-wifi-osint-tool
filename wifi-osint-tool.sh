@@ -141,7 +141,10 @@ update_oui_database() {
     
     # Download the IEEE OUI database
     log "Downloading latest IEEE OUI database..."
-    curl -s "http://standards-oui.ieee.org/oui/oui.txt" -o "$DATA_DIR/oui_db/oui.txt.new"
+curl -s "http://standards-oui.ieee.org/oui/oui.txt" -o "$DATA_DIR/oui_db/oui.txt.new" || {
+  error "Failed to download OUI database"
+  return 1
+}
     
     # Check if download was successful
     if [ ! -s "$DATA_DIR/oui_db/oui.txt.new" ]; then
