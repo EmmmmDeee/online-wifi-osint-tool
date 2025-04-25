@@ -408,9 +408,11 @@ wigle_lookup() {
     read -r choice
     case $choice in
         1) 
-            if command -v termux-open-url &> /dev/null; then
-                termux-open-url "$wigle_url"
-            else
+if command -v termux-open-url &> /dev/null; then
+    # Sanitize the URL to prevent command injection
+    local sanitized_url=$(printf '%q' "$wigle_url")
+    termux-open-url "$sanitized_url"
+else
                 error "termux-open-url not available. Manual URL visit required."
                 echo "Copy this URL: $wigle_url"
             fi
