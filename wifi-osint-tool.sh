@@ -141,10 +141,7 @@ update_oui_database() {
     
     # Download the IEEE OUI database
     log "Downloading latest IEEE OUI database..."
-curl -s "http://standards-oui.ieee.org/oui/oui.txt" -o "$DATA_DIR/oui_db/oui.txt.new" || {
-  error "Failed to download OUI database"
-  return 1
-}
+    curl -s "http://standards-oui.ieee.org/oui/oui.txt" -o "$DATA_DIR/oui_db/oui.txt.new"
     
     # Check if download was successful
     if [ ! -s "$DATA_DIR/oui_db/oui.txt.new" ]; then
@@ -167,10 +164,7 @@ curl -s "http://standards-oui.ieee.org/oui/oui.txt" -o "$DATA_DIR/oui_db/oui.txt
     fi
     
     # Update database
-mv "$DATA_DIR/oui_db/oui.txt.new" "$DATA_DIR/oui_db/oui.txt" || {
-  error "Failed to update OUI database"
-  return 1
-}
+    mv "$DATA_DIR/oui_db/oui.txt.new" "$DATA_DIR/oui_db/oui.txt"
     success "OUI database updated successfully"
     log "Last update: $(date)" > "$DATA_DIR/oui_db/last_update.txt"
     
@@ -408,11 +402,9 @@ wigle_lookup() {
     read -r choice
     case $choice in
         1) 
-if command -v termux-open-url &> /dev/null; then
-    # Sanitize the URL to prevent command injection
-    local sanitized_url=$(printf '%q' "$wigle_url")
-    termux-open-url "$sanitized_url"
-else
+            if command -v termux-open-url &> /dev/null; then
+                termux-open-url "$wigle_url"
+            else
                 error "termux-open-url not available. Manual URL visit required."
                 echo "Copy this URL: $wigle_url"
             fi
@@ -578,4 +570,94 @@ search_similar_networks() {
 }
 
 # ==================== OSINT REPORTING ===================
-# Generate OSINT report for Wi-Fi netw
+# Generate OSINT report for Wi-Fi networks
+generate_osint_report() {
+    show_header
+    echo -e "${BLUE}=== Generate OSINT Report ===${NC}"
+    
+    # Check if there are any saved scan results
+    local scan_files=("$DATA_DIR"/scan_*.json)
+    if [ ${#scan_files[@]} -eq 0 ]; then
+        error "No saved scan results found. Please perform a Wi-Fi scan first."
+        read -p "Press Enter to continue..." -r
+        return
+    fi
+    
+    echo -e "${YELLOW}Select a scan result to generate the report:${NC}"
+    local count=1
+    for file in "${scan_files[@]}"; do
+        echo "$count. $(basename "$file")"
+        count=$((count + 1))
+    done
+    
+    read -r file_choice
+    if [[ "$file_choice" =~ ^[0-9]+$ ]] && [ "$file_choice" -gt 0 ] && [ "$file_choice" -le ${#scan_files[@]} ]; then
+        local selected_file="${scan_files[$((file_choice-1))]}"
+        log "Generating OSINT report for: $(basename "$selected_file")"
+        
+        # Read the scan results
+        local scan_result=$(cat "$selected_file")
+        
+        # Create a report file
+        local report_file="${selected_file%.json}_report.txt"
+        echo "Wi-Fi OSINT Report" > "$report_file"
+        echo "Generated on: $(date)" >> "$report_file"
+        echo "Scan file: $(basename "$selected_file")" >> "$report_file"
+        echo "----------------------------------------" >> "$report_file"
+        
+        # Process each network
+        while read -r network; do
+            local ssid=$(echo "$network" | jq -r '.ssid // "<Hidden>"')
+            local bssid=$(echo "$network" | jq -r '.bssid')
+            local level=$(echo "$network" | jq -r '.level')
+            local frequency=$(echo "$network" | jq -r '.frequency')
+            local capability=$(echo "$network" | jq -r '.capabilities')
+            local channel=$(wifi_freq_to_channel "$frequency")
+            local vendor=$(lookup_mac_vendor "$bssid")
+            
+            echo "SSID: $ssid" >> "$report_file"
+            echo "BSSID: $bssid" >> "$report_file"
+            echo "Vendor: $vendor" >> "$report_file"
+            echo "Signal Strength: $level dBm" >> "$report_file"
+            echo "Frequency: $frequency MHz" >> "$report_file"
+            echo "Channel: $channel" >> "$report_file"
+            echo "Security: $capability" >> "$report_file"
+            echo "----------------------------------------" >> "$report_file"
+        done < <(echo "$scan_result" | jq -c '.[]')
+        
+        success "OSINT report generated: $report_file"
+    else
+        warning "Invalid choice. Returning to previous menu."
+    fi
+    
+    read -p "Press Enter to continue..." -r
+}
+
+# ==================== MAIN MENU ===================
+main_menu() {
+    show_header
+    echo -e "${BLUE}=== Main Menu ===${NC}"
+    echo "1. Scan for Wi-Fi Networks"
+    echo "2. Update OUI Database"
+    echo "3. Generate OSINT Report"
+    echo "4. Exit"
+    
+    read -r main_choice
+    case $main_choice in
+        1) scan_wifi_networks ;;
+        2) update_oui_database ;;
+        3) generate_osint_report ;;
+        4) exit 0 ;;
+        *) warning "Invalid option"; sleep 2; main_menu ;;
+    esac
+}
+
+# ==================== SCRIPT ENTRY POINT ===================
+# Ensure necessary setup
+setup
+
+# Check dependencies
+check_dependencies
+
+# Display main menu
+main_menu
