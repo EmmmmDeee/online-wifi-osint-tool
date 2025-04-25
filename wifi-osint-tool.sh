@@ -167,7 +167,10 @@ curl -s "http://standards-oui.ieee.org/oui/oui.txt" -o "$DATA_DIR/oui_db/oui.txt
     fi
     
     # Update database
-    mv "$DATA_DIR/oui_db/oui.txt.new" "$DATA_DIR/oui_db/oui.txt"
+mv "$DATA_DIR/oui_db/oui.txt.new" "$DATA_DIR/oui_db/oui.txt" || {
+  error "Failed to update OUI database"
+  return 1
+}
     success "OUI database updated successfully"
     log "Last update: $(date)" > "$DATA_DIR/oui_db/last_update.txt"
     
