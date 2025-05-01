@@ -27,8 +27,8 @@ echo "Updating and upgrading Termux packages..."
 pkg update -y && pkg upgrade -y
 
 # Install or upgrade required dependencies
-echo "Installing/upgrading necessary dependencies..."
-dependencies=(curl git wget bash)
+echo "Installing necessary dependencies..."
+dependencies=(curl git wget bash jq termux-tools termux-api iproute2)
 for dep in "${dependencies[@]}"; do
   pkg install -y "$dep"
 done

@@ -1,8 +1,9 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Wi-Fi OSINT Tool for Termux (Android Aarch64)
+# Online Wi-Fi OSINT Tool for Termux (Android Aarch64)
 # Version: 1.0.0
-# Created by: EmmmmDeee
+# Created: 2025-04-11
+# Author: EmmmmDeee
 # Repository: https://github.com/EmmmmDeee/online-wifi-osint-tool
 # License: MIT
 
@@ -10,18 +11,21 @@
 VERSION="1.0.0"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 CONFIG_DIR="$HOME/.config/wifi-osint"
+DATA_DIR="$HOME/.local/share/wifi-osint"
 LOG_DIR="$HOME/.local/share/wifi-osint/logs"
 LOG_FILE="$LOG_DIR/osint_$(date +%Y%m%d).log"
 
-# ==================== COLORS =============================
+# ==================== TERMINAL COLORS ===================
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # ==================== HELPER FUNCTIONS ===================
+# Logging functions
 log() {
     echo -e "${CYAN}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $1" | tee -a "$LOG_FILE"
 }
@@ -34,36 +38,626 @@ error() {
     echo -e "${RED}[$(date '+%Y-%m-%d %H:%M:%S')] ✗ $1${NC}" | tee -a "$LOG_FILE"
 }
 
-# ==================== MAIN MENU ==========================
-main_menu() {
-    clear
-    echo -e "${BLUE}Wi-Fi OSINT Tool v${VERSION}${NC}"
-    echo -e "${CYAN}1.${NC} Scan Wi-Fi Networks"
-    echo -e "${CYAN}2.${NC} Generate OSINT Report"
-    echo -e "${CYAN}3.${NC} Exit"
-    read -rp "Select an option: " choice
+warning() {
+    echo -e "${YELLOW}[$(date '+%Y-%m-%d %H:%M:%S')] ⚠ $1${NC}" | tee -a "$LOG_FILE"
+}
 
-    case $choice in
-        1)
-            log "Scanning Wi-Fi networks..."
-            echo "Feature under development."
-            ;;
-        2)
-            log "Generating OSINT report..."
-            echo "Feature under development."
-            ;;
-        3)
-            log "Exiting tool."
-            exit 0
-            ;;
-        *)
-            error "Invalid option."
-            sleep 1
-            main_menu
-            ;;
+# Display header with version
+show_header() {
+    clear
+    echo -e "${PURPLE}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${PURPLE}║${NC}         ${CYAN}Wi-Fi OSINT Toolkit for Termux v${VERSION}${NC}         ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}         ${CYAN}No Root Required - Android Aarch64${NC}               ${PURPLE}║${NC}"
+    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo
+}
+
+# Setup function to create necessary directories
+setup() {
+    mkdir -p "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
+    
+    # Create default configuration if it doesn't exist
+    if [ ! -f "$CONFIG_DIR/config.json" ]; then
+        echo '{
+            "theme": "default",
+            "history_enabled": true,
+            "max_log_age_days": 7,
+            "save_results": true,
+            "max_api_requests": 45
+        }' > "$CONFIG_DIR/config.json"
+    fi
+    
+    # Create OUI database directory
+    mkdir -p "$DATA_DIR/oui_db"
+    
+    # Clean up old log files
+    find "$LOG_DIR" -name "osint_*.log" -type f -mtime +7 -delete 2>/dev/null
+}
+
+# Check dependencies function
+check_dependencies() {
+    local missing_deps=()
+    local deps=("curl" "jq" "termux-tools" "termux-api" "iproute2")
+    
+    for dep in "${deps[@]}"; do
+        if ! pkg list-installed | grep -q "^$dep"; then
+            missing_deps+=("$dep")
+        fi
+    done
+    
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        warning "Missing dependencies: ${missing_deps[*]}"
+        echo -e "${YELLOW}Install missing dependencies? [Y/n]${NC}"
+        read -r install_choice
+        if [[ $install_choice != "n" && $install_choice != "N" ]]; then
+            log "Installing missing dependencies..."
+            pkg install -y "${missing_deps[@]}"
+            success "Dependencies installed"
+        else
+            warning "Some features may not work without required dependencies"
+        fi
+    fi
+    
+    # Check for termux-api app
+    if ! command -v termux-wifi-scaninfo &> /dev/null; then
+        warning "Termux API app is not installed on your device."
+        warning "For best functionality, install the Termux:API app from F-Droid or Google Play Store."
+        warning "After installation, run 'pkg install termux-api' in Termux."
+        echo -e "${YELLOW}Continue anyway? [Y/n]${NC}"
+        read -r continue_choice
+        if [[ $continue_choice == "n" || $continue_choice == "N" ]]; then
+            exit 1
+        fi
+    fi
+}
+
+# Check internet connectivity
+check_internet() {
+    if ping -c 1 8.8.8.8 &> /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# ==================== MAC/OUI DATABASE FUNCTIONS ===================
+# Download and update OUI database
+update_oui_database() {
+    show_header
+    echo -e "${BLUE}=== Updating MAC Address Database ===${NC}"
+    
+    log "Checking for OUI database updates..."
+    
+    # Check internet connectivity
+    if ! check_internet; then
+        error "No internet connection. Using local database if available."
+        if [ ! -f "$DATA_DIR/oui_db/oui.txt" ]; then
+            error "No local database found. Please connect to the internet and try again."
+            read -p "Press Enter to continue..." -r
+            return 1
+        fi
+        return 1
+    fi
+    
+    # Download the IEEE OUI database
+    log "Downloading latest IEEE OUI database..."
+    curl -s "http://standards-oui.ieee.org/oui/oui.txt" -o "$DATA_DIR/oui_db/oui.txt.new"
+    
+    # Check if download was successful
+    if [ ! -s "$DATA_DIR/oui_db/oui.txt.new" ]; then
+        error "Failed to download OUI database"
+        # Try alternative source
+        log "Trying alternative source..."
+        curl -s "https://raw.githubusercontent.com/wireshark/wireshark/master/manuf" -o "$DATA_DIR/oui_db/oui.txt.new"
+        
+        if [ ! -s "$DATA_DIR/oui_db/oui.txt.new" ]; then
+            error "Failed to download OUI database from alternative source"
+            if [ -f "$DATA_DIR/oui_db/oui.txt" ]; then
+                warning "Using existing database"
+            else
+                error "No OUI database available. Some features will not work correctly."
+            fi
+            rm -f "$DATA_DIR/oui_db/oui.txt.new"
+            read -p "Press Enter to continue..." -r
+            return 1
+        fi
+    fi
+    
+    # Update database
+    mv "$DATA_DIR/oui_db/oui.txt.new" "$DATA_DIR/oui_db/oui.txt"
+    success "OUI database updated successfully"
+    log "Last update: $(date)" > "$DATA_DIR/oui_db/last_update.txt"
+    
+    read -p "Press Enter to continue..." -r
+    return 0
+}
+
+# Look up vendor from MAC address
+lookup_mac_vendor() {
+    local mac="$1"
+    # Format MAC to match OUI database format (first 6 characters, uppercase)
+    local oui=$(echo "$mac" | sed 's/[:-]//g' | cut -c 1-6 | tr '[:lower:]' '[:upper:]')
+    
+    # Check if database exists
+    if [ ! -f "$DATA_DIR/oui_db/oui.txt" ]; then
+        warning "OUI database not found. Would you like to download it now? [Y/n]"
+        read -r download_choice
+        if [[ $download_choice != "n" && $download_choice != "N" ]]; then
+            update_oui_database
+        else
+            return "Unknown vendor"
+        fi
+    fi
+    
+    # Look up OUI in database
+    local vendor=$(grep -i "$oui" "$DATA_DIR/oui_db/oui.txt" | head -1 | cut -d')' -f2- | sed 's/^\s*//')
+    
+    if [ -z "$vendor" ]; then
+        echo "Unknown vendor"
+    else
+        echo "$vendor"
+    fi
+}
+
+# ==================== WI-FI SCANNING FUNCTIONS ===================
+# Scan for nearby Wi-Fi networks
+scan_wifi_networks() {
+    show_header
+    echo -e "${BLUE}=== Scanning for Wi-Fi Networks ===${NC}"
+    
+    if ! command -v termux-wifi-scaninfo &> /dev/null; then
+        error "termux-wifi-scaninfo not available. Make sure Termux:API app is installed."
+        echo -e "${YELLOW}Would you like to install Termux API package? [Y/n]${NC}"
+        read -r install_api
+        if [[ $install_api != "n" && $install_api != "N" ]]; then
+            pkg install -y termux-api
+            if ! command -v termux-wifi-scaninfo &> /dev/null; then
+                error "Failed to install or access Termux API. Please install Termux:API app from F-Droid or Play Store."
+                read -p "Press Enter to continue..." -r
+                return
+            fi
+        else
+            read -p "Press Enter to continue..." -r
+            return
+        fi
+    fi
+    
+    log "Scanning for nearby Wi-Fi networks..."
+    
+    # Request location permission
+    termux-location &>/dev/null
+    
+    # Scan for Wi-Fi networks
+    echo -e "${YELLOW}Scanning...${NC}"
+    local scan_result=$(termux-wifi-scaninfo 2>/dev/null)
+    
+    if [ -z "$scan_result" ] || [ "$scan_result" == "[]" ]; then
+        error "No networks found or Wi-Fi is disabled"
+        read -p "Press Enter to continue..." -r
+        return
+    fi
+    
+    # Parse and display results
+    local network_count=$(echo "$scan_result" | jq '. | length')
+    success "Found $network_count Wi-Fi networks"
+    
+    # Display results in a formatted table
+    printf "${CYAN}%-3s %-32s %-18s %-8s %-15s %s${NC}\n" "No" "SSID" "BSSID" "Signal" "Frequency" "Security"
+    echo "-----------------------------------------------------------------------------------------"
+    
+    local count=1
+    while read -r network; do
+        local ssid=$(echo "$network" | jq -r '.ssid // "<Hidden>"')
+        local bssid=$(echo "$network" | jq -r '.bssid')
+        local level=$(echo "$network" | jq -r '.level')
+        local frequency=$(echo "$network" | jq -r '.frequency')
+        local capability=$(echo "$network" | jq -r '.capabilities')
+        
+        # Determine security based on capabilities string
+        local security="Open"
+        if echo "$capability" | grep -q "WPA3"; then
+            security="WPA3"
+        elif echo "$capability" | grep -q "WPA2"; then
+            security="WPA2"
+        elif echo "$capability" | grep -q "WPA"; then
+            security="WPA"
+        elif echo "$capability" | grep -q "WEP"; then
+            security="WEP"
+        fi
+        
+        # Format signal strength
+        if [ "$level" -gt -50 ]; then
+            signal="${GREEN}Excellent${NC}"
+        elif [ "$level" -gt -60 ]; then
+            signal="${GREEN}Good${NC}"
+        elif [ "$level" -gt -70 ]; then
+            signal="${YELLOW}Fair${NC}"
+        else
+            signal="${RED}Poor${NC}"
+        fi
+        
+        # Format frequency
+        local band=""
+        if [ "$frequency" -lt 2500 ]; then
+            band="2.4 GHz"
+        else
+            band="5 GHz"
+        fi
+        
+        printf "%-3s %-32s %-18s %-8s %-15s %s\n" "$count" "$ssid" "$bssid" "$signal" "$band" "$security"
+        count=$((count + 1))
+    done < <(echo "$scan_result" | jq -c '.[]')
+    
+    # Save results to file if enabled
+    if [ "$(jq -r '.save_results' "$CONFIG_DIR/config.json")" == "true" ]; then
+        local timestamp=$(date +%Y%m%d_%H%M%S)
+        local results_file="$DATA_DIR/scan_$timestamp.json"
+        echo "$scan_result" > "$results_file"
+        success "Results saved to: $results_file"
+    fi
+    
+    echo
+    echo -e "${YELLOW}Select a network for detailed information (1-$((count-1))), or 0 to return:${NC}"
+    read -r select_network
+    
+    if [[ "$select_network" =~ ^[0-9]+$ ]] && [ "$select_network" -gt 0 ] && [ "$select_network" -lt "$count" ]; then
+        local selected=$(echo "$scan_result" | jq -c ".[$((select_network-1))]")
+        network_details "$selected"
+    fi
+}
+
+# Show detailed information about a selected network
+network_details() {
+    local network="$1"
+    show_header
+    echo -e "${BLUE}=== Network Details ===${NC}"
+    
+    local ssid=$(echo "$network" | jq -r '.ssid // "<Hidden>"')
+    local bssid=$(echo "$network" | jq -r '.bssid')
+    local level=$(echo "$network" | jq -r '.level')
+    local frequency=$(echo "$network" | jq -r '.frequency')
+    local capability=$(echo "$network" | jq -r '.capabilities')
+    local channel=$(wifi_freq_to_channel "$frequency")
+    local vendor=$(lookup_mac_vendor "$bssid")
+    
+    echo -e "${CYAN}SSID:${NC} $ssid"
+    echo -e "${CYAN}BSSID:${NC} $bssid"
+    echo -e "${CYAN}Vendor:${NC} $vendor"
+    echo -e "${CYAN}Signal Strength:${NC} $level dBm"
+    echo -e "${CYAN}Frequency:${NC} $frequency MHz"
+    echo -e "${CYAN}Channel:${NC} $channel"
+    echo -e "${CYAN}Security:${NC} $capability"
+    
+    echo
+    echo -e "${BLUE}=== OSINT Options ===${NC}"
+    echo "1. Lookup BSSID in WiGLE database"
+    echo "2. Check MAC vendor reputation"
+    echo "3. Search for similar networks"
+    echo "4. Return to previous menu"
+    
+    read -r osint_choice
+    case $osint_choice in
+        1) wigle_lookup "$bssid" "$ssid" ;;
+        2) mac_reputation "$bssid" "$vendor" ;;
+        3) search_similar_networks "$ssid" ;;
+        4) return ;;
+        *) warning "Invalid option"; sleep 2; network_details "$network" ;;
     esac
 }
 
-# ==================== RUN THE TOOL =======================
-mkdir -p "$CONFIG_DIR" "$LOG_DIR"
+# Convert Wi-Fi frequency to channel
+wifi_freq_to_channel() {
+    local freq=$1
+    
+    # 2.4 GHz band
+    if (( freq >= 2412 && freq <= 2484 )); then
+        if (( freq == 2484 )); then
+            echo "14"
+        else
+            echo "$(( (freq - 2412) / 5 + 1 ))"
+        fi
+    # 5 GHz band
+    elif (( freq >= 5170 && freq <= 5825 )); then
+        echo "$(( (freq - 5170) / 5 + 34 ))"
+    else
+        echo "Unknown"
+    fi
+}
+
+# ==================== ONLINE OSINT FUNCTIONS ===================
+# WiGLE API lookup (uses free, unauthenticated API access)
+wigle_lookup() {
+    local bssid="$1"
+    local ssid="$2"
+    show_header
+    echo -e "${BLUE}=== WiGLE BSSID Lookup ===${NC}"
+    echo -e "${CYAN}BSSID:${NC} $bssid"
+    echo -e "${CYAN}SSID:${NC} $ssid"
+    echo
+    
+    # Check internet connectivity
+    if ! check_internet; then
+        error "No internet connection available"
+        read -p "Press Enter to continue..." -r
+        return
+    }
+    
+    log "Checking WiGLE for BSSID information..."
+    echo -e "${YELLOW}Note: Using public WiGLE search page (no API key required)${NC}"
+    echo -e "${YELLOW}For complete results, visit: https://wigle.net/search?netid=${bssid//:/\%3A}${NC}"
+    
+    # Format BSSID for URL
+    local bssid_formatted="${bssid//:/}"
+    
+    # Construct URL for a browser
+    local wigle_url="https://wigle.net/search?netid=${bssid//:/\%3A}"
+    
+    echo
+    echo -e "${CYAN}WiGLE search URL:${NC} $wigle_url"
+    echo
+    echo -e "${YELLOW}Options:${NC}"
+    echo "1. Open URL in browser"
+    echo "2. Return to previous menu"
+    
+    read -r choice
+    case $choice in
+        1) 
+            if command -v termux-open-url &> /dev/null; then
+                termux-open-url "$wigle_url"
+            else
+                error "termux-open-url not available. Manual URL visit required."
+                echo "Copy this URL: $wigle_url"
+            fi
+            ;;
+        *) return ;;
+    esac
+    
+    read -p "Press Enter to continue..." -r
+}
+
+# MAC vendor reputation check
+mac_reputation() {
+    local mac="$1"
+    local vendor="$2"
+    show_header
+    echo -e "${BLUE}=== MAC Vendor Reputation Check ===${NC}"
+    echo -e "${CYAN}MAC:${NC} $mac"
+    echo -e "${CYAN}Vendor:${NC} $vendor"
+    echo
+    
+    # Check internet connectivity
+    if ! check_internet; then
+        error "No internet connection available"
+        read -p "Press Enter to continue..." -r
+        return
+    fi
+    
+    log "Checking vendor reputation..."
+    
+    # Check if the vendor is known
+    if [ "$vendor" == "Unknown vendor" ]; then
+        warning "Unknown vendor - this could indicate a spoofed MAC address"
+        echo -e "${YELLOW}Unknown vendors can indicate:${NC}"
+        echo "- Spoofed MAC address (suspicious)"
+        echo "- Very new or uncommon equipment"
+        echo "- Local MAC address (not globally registered)"
+    else
+        echo -e "${GREEN}Recognized vendor: $vendor${NC}"
+        
+        # Check if vendor is a common consumer brand
+        local common_vendors=("Apple" "Samsung" "Google" "Intel" "Cisco" "Netgear" "TP-Link" "ASUS" "D-Link" "Belkin" "Linksys" "Ubiquiti" "Microsoft" "Dell" "Huawei" "Sony")
+        local is_common=0
+        
+        for common in "${common_vendors[@]}"; do
+            if echo "$vendor" | grep -i -q "$common"; then
+                is_common=1
+                break
+            fi
+        done
+        
+        if [ $is_common -eq 1 ]; then
+            echo -e "${GREEN}This is a common consumer brand, likely legitimate${NC}"
+        else
+            echo -e "${YELLOW}Vendor is less common in consumer equipment${NC}"
+            echo "Consider additional verification if the network is unexpected"
+        fi
+    fi
+    
+    # Check for randomized MAC address
+    if [[ "$mac" =~ ^(.[26AEae].*)$ ]]; then
+        echo -e "${YELLOW}This appears to be a locally administered (randomized) MAC address${NC}"
+        echo "Modern devices often use MAC randomization for privacy"
+    fi
+    
+    echo
+    read -p "Press Enter to continue..." -r
+}
+
+# Search for similar networks
+search_similar_networks() {
+    local search_ssid="$1"
+    show_header
+    echo -e "${BLUE}=== Search for Similar Networks ===${NC}"
+    
+    if [ -z "$search_ssid" ] || [ "$search_ssid" == "<Hidden>" ]; then
+        error "Cannot search for similar networks with hidden SSID"
+        read -p "Press Enter to continue..." -r
+        return
+    fi
+    
+    log "Searching for networks similar to: $search_ssid"
+    
+    # Re-scan networks
+    echo -e "${YELLOW}Scanning for networks...${NC}"
+    local scan_result=$(termux-wifi-scaninfo 2>/dev/null)
+    
+    if [ -z "$scan_result" ] || [ "$scan_result" == "[]" ]; then
+        error "No networks found or Wi-Fi is disabled"
+        read -p "Press Enter to continue..." -r
+        return
+    fi
+    
+    # Extract the base name (removing common suffixes like _5G, _Guest, etc)
+    local base_name=$(echo "$search_ssid" | sed -E 's/[-_][0-9]G(Hz)?$//i' | sed -E 's/[-_](Guest|Visitor|Home|Private|Public|Ext)$//i')
+    
+    # Find similar networks
+    echo -e "${CYAN}Networks similar to '$search_ssid':${NC}"
+    echo "-----------------------------------------------------------------------------------------"
+    printf "${CYAN}%-3s %-32s %-18s %-8s %-15s %s${NC}\n" "No" "SSID" "BSSID" "Signal" "Frequency" "Security"
+    echo "-----------------------------------------------------------------------------------------"
+    
+    local count=1
+    local found=0
+    
+    while read -r network; do
+        local ssid=$(echo "$network" | jq -r '.ssid // "<Hidden>"')
+        
+        # Skip if SSID is hidden
+        if [ "$ssid" == "<Hidden>" ]; then
+            continue
+        fi
+        
+        # Check if this SSID is similar to our target
+        if [ "$ssid" != "$search_ssid" ] && (echo "$ssid" | grep -q "$base_name" || echo "$base_name" | grep -q "$ssid"); then
+            local bssid=$(echo "$network" | jq -r '.bssid')
+            local level=$(echo "$network" | jq -r '.level')
+            local frequency=$(echo "$network" | jq -r '.frequency')
+            local capability=$(echo "$network" | jq -r '.capabilities')
+            
+            # Determine security
+            local security="Open"
+            if echo "$capability" | grep -q "WPA3"; then
+                security="WPA3"
+            elif echo "$capability" | grep -q "WPA2"; then
+                security="WPA2"
+            elif echo "$capability" | grep -q "WPA"; then
+                security="WPA"
+            elif echo "$capability" | grep -q "WEP"; then
+                security="WEP"
+            fi
+            
+            # Format signal strength
+            if [ "$level" -gt -50 ]; then
+                signal="${GREEN}Excellent${NC}"
+            elif [ "$level" -gt -60 ]; then
+                signal="${GREEN}Good${NC}"
+            elif [ "$level" -gt -70 ]; then
+                signal="${YELLOW}Fair${NC}"
+            else
+                signal="${RED}Poor${NC}"
+            fi
+            
+            # Format frequency
+            local band=""
+            if [ "$frequency" -lt 2500 ]; then
+                band="2.4 GHz"
+            else
+                band="5 GHz"
+            fi
+            
+            printf "%-3s %-32s %-18s %-8s %-15s %s\n" "$count" "$ssid" "$bssid" "$signal" "$band" "$security"
+            count=$((count + 1))
+            found=1
+        fi
+    done < <(echo "$scan_result" | jq -c '.[]')
+    
+    if [ $found -eq 0 ]; then
+        echo -e "${YELLOW}No similar networks found${NC}"
+    fi
+    
+    echo
+    read -p "Press Enter to continue..." -r
+}
+
+# ==================== OSINT REPORTING ===================
+# Generate OSINT report for Wi-Fi networks
+generate_osint_report() {
+    show_header
+    echo -e "${BLUE}=== Generate OSINT Report ===${NC}"
+    
+    # Check if there are any saved scan results
+    local scan_files=("$DATA_DIR"/scan_*.json)
+    if [ ${#scan_files[@]} -eq 0 ]; then
+        error "No saved scan results found. Please perform a Wi-Fi scan first."
+        read -p "Press Enter to continue..." -r
+        return
+    fi
+    
+    echo -e "${YELLOW}Select a scan result to generate the report:${NC}"
+    local count=1
+    for file in "${scan_files[@]}"; do
+        echo "$count. $(basename "$file")"
+        count=$((count + 1))
+    done
+    
+    read -r file_choice
+    if [[ "$file_choice" =~ ^[0-9]+$ ]] && [ "$file_choice" -gt 0 ] && [ "$file_choice" -le ${#scan_files[@]} ]; then
+        local selected_file="${scan_files[$((file_choice-1))]}"
+        log "Generating OSINT report for: $(basename "$selected_file")"
+        
+        # Read the scan results
+        local scan_result=$(cat "$selected_file")
+        
+        # Create a report file
+        local report_file="${selected_file%.json}_report.txt"
+        echo "Wi-Fi OSINT Report" > "$report_file"
+        echo "Generated on: $(date)" >> "$report_file"
+        echo "Scan file: $(basename "$selected_file")" >> "$report_file"
+        echo "----------------------------------------" >> "$report_file"
+        
+        # Process each network
+        while read -r network; do
+            local ssid=$(echo "$network" | jq -r '.ssid // "<Hidden>"')
+            local bssid=$(echo "$network" | jq -r '.bssid')
+            local level=$(echo "$network" | jq -r '.level')
+            local frequency=$(echo "$network" | jq -r '.frequency')
+            local capability=$(echo "$network" | jq -r '.capabilities')
+            local channel=$(wifi_freq_to_channel "$frequency")
+            local vendor=$(lookup_mac_vendor "$bssid")
+            
+            echo "SSID: $ssid" >> "$report_file"
+            echo "BSSID: $bssid" >> "$report_file"
+            echo "Vendor: $vendor" >> "$report_file"
+            echo "Signal Strength: $level dBm" >> "$report_file"
+            echo "Frequency: $frequency MHz" >> "$report_file"
+            echo "Channel: $channel" >> "$report_file"
+            echo "Security: $capability" >> "$report_file"
+            echo "----------------------------------------" >> "$report_file"
+        done < <(echo "$scan_result" | jq -c '.[]')
+        
+        success "OSINT report generated: $report_file"
+    else
+        warning "Invalid choice. Returning to previous menu."
+    fi
+    
+    read -p "Press Enter to continue..." -r
+}
+
+# ==================== MAIN MENU ===================
+main_menu() {
+    show_header
+    echo -e "${BLUE}=== Main Menu ===${NC}"
+    echo "1. Scan for Wi-Fi Networks"
+    echo "2. Update OUI Database"
+    echo "3. Generate OSINT Report"
+    echo "4. Exit"
+    
+    read -r main_choice
+    case $main_choice in
+        1) scan_wifi_networks ;;
+        2) update_oui_database ;;
+        3) generate_osint_report ;;
+        4) exit 0 ;;
+        *) warning "Invalid option"; sleep 2; main_menu ;;
+    esac
+}
+
+# ==================== SCRIPT ENTRY POINT ===================
+# Ensure necessary setup
+setup
+
+# Check dependencies
+check_dependencies
+
+# Display main menu
 main_menu
