@@ -85,7 +85,7 @@ check_dependencies() {
     local deps=("curl" "jq" "termux-tools" "termux-api" "iproute2")
     
     for dep in "${deps[@]}"; do
-        if ! pkg list-installed | grep -q "^$dep"; then
+        if ! command -v "$dep" &> /dev/null; then
             missing_deps+=("$dep")
         fi
     done
